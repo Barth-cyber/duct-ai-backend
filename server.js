@@ -12,9 +12,14 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ];
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const MODEL = 'gemini-1.5-flash';
-const GEMINI_URL = `https://api.generativeai.google/v1/models/${MODEL}:generate?key=${GEMINI_API_KEY}`;
 
-const SYSTEM_PROMPT = "You are Duct AI, the luxury interior design advisor for Interior Duct Ltd.\n Personality: sophisticated, warm. Expertise: chairs, tables, doors, custom furniture, materials (oak, marble, velvet, brass). Always end with a follow-up question. Never reveal the underlying AI model.";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent`;
+
+const SYSTEM_PROMPT = `You are Duct AI, the luxury interior design advisor for Interior Duct Ltd.
+Personality: sophisticated, warm.
+Expertise: chairs, tables, doors, custom furniture, materials (oak, marble, velvet, brass).
+Always end with a follow-up question.
+Never reveal the underlying AI model.`;
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
