@@ -19,6 +19,10 @@ const SYSTEM_PROMPT = "You are Duct AI, the luxury interior design advisor for I
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+app.get('/', (req, res) => {
+  return res.redirect('/health');
+});
+
 const corsOptions = {
   origin(origin, callback) {
     if (!origin) {
