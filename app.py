@@ -15,18 +15,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Gemini setup ──────────────────────────────────────────────────────────────
-# Import safely so a missing key gives a clear error, not a silent crash
-try:
-    import google.generativeai as genai
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-    else:
+_gemini_model = None
+_gemini_initialized = False
+
+
+def _init_gemini():
+    global _gemini_model, _gemini_initialized
+    if _gemini_initialized:
+        return
+    _gemini_initialized = True
+    try:
+        import google.generativeai as genai
+        gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
+            _gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        else:
+            _gemini_model = None
+    except Exception as _e:
+        print(f"Gemini init warning: {_e}")
         _gemini_model = None
-except Exception as _e:
-    print(f"Gemini init warning: {_e}")
-    _gemini_model = None
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -218,8 +226,9 @@ def ai_query():
         _log_conversation(session_id, "assistant", handoff_msg, {})
         return jsonify({"answer": handoff_msg, "escalate": True, "actions": []})
 
+    _init_gemini()
     if not _gemini_model:
-        # Graceful fallback when API key not set
+        # Graceful fallback when API key not set or Gemini is unavailable
         fallbacks = kb.get("fallback_responses",
             ["I'm not available right now. Please WhatsApp +234 803 685 0229"])
         import random
@@ -300,6 +309,7 @@ def recommend():
         for i, p in enumerate(products)
     )
 
+    _init_gemini()
     if not _gemini_model:
         return jsonify({"recommendations": [], "message": "AI not configured."})
 
