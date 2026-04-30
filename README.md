@@ -10,6 +10,8 @@ For the frontend hosted on `interiorductltd.com`, the backend should use a dedic
 
 This repository is a Python Flask backend. In Render, use the `render.yaml` manifest and configure the service as a Python 3.11 web service.
 
+If this service is already configured on Render as a Node.js service, the repository now includes a lightweight `package.json` shim to install Python dependencies and start `gunicorn`.
+
 Set the `GEMINI_API_KEY` value in the Render dashboard under **Environment > Environment Variables**.
 
 Do not put the Gemini key in any committed file.
