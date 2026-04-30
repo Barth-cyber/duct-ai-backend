@@ -258,10 +258,10 @@ def ai_query():
         except Exception as chat_error:
             print(f"Gemini chat send_message failed: {chat_error}")
             try:
-                response = _gemini_model.generate_text(full_query)
+                response = _gemini_model.generate_content(full_query)
                 answer = getattr(response, "text", "").strip() or str(response)
             except Exception as fallback_error:
-                print(f"Gemini generate_text fallback failed: {fallback_error}")
+                print(f"Gemini generate_content fallback failed: {fallback_error}")
                 raise
 
         # Save to history
