@@ -8,7 +8,8 @@ For the frontend hosted on `interiorductltd.com`, the backend should use a dedic
 
 - `https://api.interiorductltd.com`
 
-In Render, configure the backend service to use that custom subdomain and set the `GEMINI_API_KEY`
-value in the Render dashboard under **Environment > Environment Variables**.
+This repository is a Python Flask backend. In Render, use the `render.yaml` manifest and configure the service as a Python 3.11 web service.
+
+Set the `GEMINI_API_KEY` value in the Render dashboard under **Environment > Environment Variables**.
 
 Do not put the Gemini key in any committed file.
