@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+DEPLOYMENT_REVISION = '43c88de'
+
 # ── Gemini setup ──────────────────────────────────────────────────────────────
 _gemini_model = None
 _gemini_initialized = False
@@ -199,6 +201,7 @@ def health():
         "service": "duct-ai-backend",
         "model": "gemini-1.5-flash",
         "keySet": bool(os.environ.get("GEMINI_API_KEY")),
+        "revision": DEPLOYMENT_REVISION,
     })
 
 
