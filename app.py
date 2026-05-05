@@ -8,13 +8,22 @@ import os
 import json
 import time
 import datetime
+from typing import Any, List, Optional
 from flask import Flask, request, jsonify
+import requests
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DEPLOYMENT_REVISION = '43c88de'
+
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-3.5-turbo')
+OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
 # ── Gemini setup ──────────────────────────────────────────────────────────────
 _gemini_model = None
@@ -100,6 +109,127 @@ def _load_products():
         return products
     kb = _load_kb()
     return kb.get("products", [])
+
+
+def _render_context(context: dict) -> str:
+    if not isinstance(context, dict):
+        return ""
+    parts = []
+    if context.get("page"):
+        parts.append(f"Page: {context['page']}")
+    if context.get("product"):
+        parts.append(f"Product: {context['product']}")
+    if context.get("user_agent"):
+        parts.append(f"User agent: {context['user_agent']}")
+    return "\n".join(parts)
+
+
+def _load_session_history(session_id: str) -> List[dict]:
+    conversations = _read_json(CONV_LOG_PATH, [])
+    return [item for item in conversations if item.get("session_id") == session_id][-20:]
+
+
+def _render_session_history(history: List[dict]) -> str:
+    if not history:
+        return ""
+    lines = []
+    for entry in history:
+        role = entry.get("role", "user")
+        text = entry.get("text", "")
+        if role and text:
+            lines.append(f"{role.capitalize()}: {text}")
+    return "\n".join(lines)
+
+
+def _extract_response_text(response) -> str:
+    if response is None:
+        return ""
+    if isinstance(response, str):
+        return response.strip()
+    if isinstance(response, dict):
+        for key in ("text", "content", "message", "completion", "output_text", "response"):
+            if key in response and isinstance(response[key], str) and response[key].strip():
+                return response[key].strip()
+        for key in ("choices", "candidates", "items", "messages"):
+            if key in response:
+                sub = response[key]
+                if isinstance(sub, list) and sub:
+                    return _extract_response_text(sub[0])
+                if isinstance(sub, dict):
+                    return _extract_response_text(sub)
+        for value in response.values():
+            text = _extract_response_text(value)
+            if text:
+                return text
+        return ""
+    if hasattr(response, "text") and isinstance(response.text, str) and response.text.strip():
+        return response.text.strip()
+    if hasattr(response, "content") and isinstance(response.content, str) and response.content.strip():
+        return response.content.strip()
+    if hasattr(response, "response") and isinstance(response.response, str) and response.response.strip():
+        return response.response.strip()
+    if hasattr(response, "candidates"):
+        candidates = getattr(response, "candidates")
+        if isinstance(candidates, list) and candidates:
+            return _extract_response_text(candidates[0])
+    return ""
+
+
+def _call_openai(system_prompt, user_query):
+    if not OPENAI_API_KEY:
+        return None, "OpenAI API key not set"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query}
+        ],
+        "temperature": 0.7,
+    }
+    try:
+        resp = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return _extract_response_text(resp.json()), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _call_anthropic(system_prompt, user_query):
+    if not ANTHROPIC_API_KEY:
+        return None, "Anthropic API key not set"
+    headers = {
+        "Authorization": f"Bearer {ANTHROPIC_API_KEY}",
+        "Anthropic-Version": "2023-06-01",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 1024,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_query}
+        ]
+    }
+    try:
+        resp = requests.post(ANTHROPIC_URL, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        return _extract_response_text(resp.json()), None
+    except Exception as e:
+        return None, str(e)
+
+
+def _find_kb_response(query: str, kb: dict) -> Optional[str]:
+    if not query:
+        return None
+    q = query.lower()
+    for faq in kb.get("faqs", []):
+        if faq.get("q", "").lower() in q or q in faq.get("q", "").lower():
+            return faq.get("a")
+    return None
 
 
 def _build_system_prompt():
@@ -237,52 +367,75 @@ def ai_query():
         _log_conversation(session_id, "assistant", handoff_msg, {})
         return jsonify({"answer": handoff_msg, "escalate": True, "actions": []})
 
+    history = _load_session_history(session_id)
+    session_text = _render_session_history(history)
+    context_text = _render_context(context)
+
     _init_gemini()
-    if not _gemini_model:
-        # Graceful fallback when API key not set or Gemini is unavailable
-        fallbacks = kb.get("fallback_responses",
-            ["I'm not available right now. Please WhatsApp +234 803 685 0229"])
-        import random
-        return jsonify({"answer": random.choice(fallbacks), "escalate": False})
+    system_prompt = _build_system_prompt()
+    if session_text:
+        system_prompt += f"\n\nConversation history:\n{session_text}"
+    if context_text:
+        system_prompt += f"\n\nRequest context:\n{context_text}"
+    full_query = f"{system_prompt}\n\nUser: {query}"
 
-    try:
-        system_prompt = _build_system_prompt()
-        full_query = f"{system_prompt}\n\nUser: {query}"
+    answer = None
+    error_log = None
 
+    if _gemini_model:
         try:
-            response = _gemini_model.generate_content(full_query)
-            answer = getattr(response, "text", "").strip()
+            if hasattr(_gemini_model, "generate_text"):
+                response = _gemini_model.generate_text(full_query)
+            else:
+                response = _gemini_model.generate_content(full_query)
+            answer = _extract_response_text(response)
+            if not answer:
+                raise ValueError("empty response from Gemini")
+            provider = "gemini"
         except Exception as gen_error:
-            print(f"Gemini generate_content failed: {gen_error}")
-            raise
+            print(f"Gemini error: {gen_error}")
+            error_log = str(gen_error)
+            answer = None
+            provider = None
+    else:
+        provider = None
 
-        # Save to history
+    if not answer and OPENAI_API_KEY:
+        openai_answer, openai_error = _call_openai(system_prompt, query)
+        if openai_answer:
+            answer = openai_answer
+            provider = "openai"
+        else:
+            error_log = f"{error_log or 'Gemini unavailable'}; OpenAI error: {openai_error}"
+
+    if not answer and ANTHROPIC_API_KEY:
+        anthropic_answer, anthropic_error = _call_anthropic(system_prompt, query)
+        if anthropic_answer:
+            answer = anthropic_answer
+            provider = "anthropic"
+        else:
+            error_log = f"{error_log or 'Gemini/OpenAI unavailable'}; Anthropic error: {anthropic_error}"
+
+    if answer:
         _save_to_history(session_id, "user", query)
-        _save_to_history(session_id, "model", answer)
-
-        # Parse action directives embedded in answer
+        _save_to_history(session_id, "assistant", answer)
         actions = _extract_actions(answer)
-        # Clean directives from visible answer text
-        clean_answer = answer.replace("[SCROLL:", "").replace("[PRODUCT:", "")
+        clean_answer = answer
         for a in actions:
             clean_answer = clean_answer.replace(a.get("raw", ""), "").strip()
+        _log_conversation(session_id, "assistant", clean_answer, {"provider": provider})
+        return jsonify({"answer": clean_answer, "escalate": False, "actions": actions, "provider": provider})
 
-        _log_conversation(session_id, "assistant", clean_answer, {})
+    kb_answer = _find_kb_response(query, kb)
+    if kb_answer:
+        _log_conversation(session_id, "assistant", kb_answer, {"fallback": True})
+        return jsonify({"answer": kb_answer, "escalate": False, "actions": [], "provider": "kb_fallback"})
 
-        return jsonify({
-            "answer":   clean_answer,
-            "escalate": False,
-            "actions":  actions,
-        })
-
-    except Exception as e:
-        print(f"Gemini error: {e}")
-        fallbacks = kb.get("fallback_responses", ["Sorry, something went wrong."])
-        import random
-        return jsonify({
-            "answer":   random.choice(fallbacks),
-            "escalate": False,
-        })
+    fallbacks = kb.get("fallback_responses", ["Sorry, something went wrong."])
+    import random
+    fallback_answer = random.choice(fallbacks)
+    _log_conversation(session_id, "assistant", fallback_answer, {"fallback": True})
+    return jsonify({"answer": fallback_answer, "escalate": False, "provider": "fallback", "error_log": error_log or "No provider available"})
 
 
 def _extract_actions(text):
@@ -332,8 +485,11 @@ Return ONLY valid JSON — a list of exactly 3 objects:
 No markdown, no explanation, just the JSON array."""
 
     try:
-        response = _gemini_model.generate_content(prompt)
-        raw      = response.text.strip().replace("```json","").replace("```","").strip()
+        if hasattr(_gemini_model, "generate_text"):
+            response = _gemini_model.generate_text(prompt)
+        else:
+            response = _gemini_model.generate_content(prompt)
+        raw = _extract_response_text(response).replace("```json", "").replace("```", "").strip()
         recs_raw = json.loads(raw)
 
         recommendations = []
