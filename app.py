@@ -59,14 +59,45 @@ def _init_gemini():
 app = Flask(__name__)
 
 # Allow requests from your live domain AND localhost for development
-CORS(app, resources={r"/*": {"origins": [
-    "https://interiorductltd.com",
-    "https://www.interiorductltd.com",
-    "https://interior-ecommerce-lh3e.onrender.com",
-    "http://localhost:5000",
-    "http://127.0.0.1:5000",
-    "http://localhost:3000",
-]}})
+_ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "https://interiorductltd.com,https://www.interiorductltd.com,http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000")
+if _ALLOWED_ORIGINS_RAW.strip() == "*":
+    _CORS_ORIGINS = "*"
+else:
+    _CORS_ORIGINS = [o.strip() for o in _ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+
+CORS(app, resources={r"/*": {"origins": _CORS_ORIGINS}})
+
+# Simple in-memory rate limiter (per-IP, per-minute).
+# Config: RATE_LIMIT_PER_MIN env var (default 120 requests/min)
+_RATE_LIMIT = int(os.environ.get("RATE_LIMIT_PER_MIN", "120"))
+_rate_state = {}
+_rate_lock = __import__("threading").Lock()
+
+
+@app.before_request
+def enforce_rate_limit():
+    # Skip rate limiting for health checks and static assets
+    path = request.path or ""
+    if path.startswith("/health") or path.startswith("/static"):
+        return None
+
+    # Identify client by forwarded header or remote_addr
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+    try:
+        now = int(time.time())
+        window = 60
+        with _rate_lock:
+            state = _rate_state.get(ip)
+            if not state or now - state.get("start", 0) >= window:
+                # start new window
+                _rate_state[ip] = {"count": 1, "start": now}
+            else:
+                state["count"] += 1
+                if state["count"] > _RATE_LIMIT:
+                    return jsonify({"error": "rate_limited", "limit": _RATE_LIMIT}), 429
+    except Exception:
+        # On any error, do not block the request; fail-open
+        return None
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR       = os.path.dirname(__file__)
@@ -322,6 +353,27 @@ def _save_to_history(session_id, role, text):
         _sessions[session_id] = _sessions[session_id][-30:]
 
 
+def require_env_token(env_var_name: str):
+    """Decorator to protect endpoints with a token stored in environment.
+    Checks `X-API-KEY` header or `token` query param. If the env var is unset,
+    the endpoint remains public to avoid breaking existing integrations.
+    """
+    from functools import wraps
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            expected = os.environ.get(env_var_name, "").strip()
+            if not expected:
+                return func(*args, **kwargs)
+            token = request.headers.get("X-API-KEY") or request.args.get("token", "")
+            if token != expected:
+                return jsonify({"error": "Unauthorized"}), 401
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
@@ -347,25 +399,32 @@ def ai_query():
     Body: { "query": "...", "session_id": "...", "context": {...} }
     Returns: { "answer": "...", "escalate": false, "actions": [...] }
     """
-    data       = request.get_json(silent=True) or {}
-    query      = (data.get("query") or "").strip()
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
     session_id = (data.get("session_id") or "anonymous")
-    context    = data.get("context", {})   # optional: { page, product, scroll_pos }
+    context = data.get("context", {})
 
+    result = process_query(query, session_id, context)
+    return jsonify(result)
+
+
+def process_query(query: str, session_id: str = "anonymous", context: dict = None) -> dict:
+    """Core query processing extracted so other endpoints can reuse it.
+    Returns a dict matching the old /ai-query JSON structure.
+    """
+    context = context or {}
     if not query:
-        return jsonify({"answer": None, "escalate": True})
+        return {"answer": None, "escalate": True}
 
-    # Log the query
     _log_conversation(session_id, "user", query, context)
 
-    # Check human-handoff triggers first (no AI needed)
     kb = _load_kb()
     handoff_triggers = kb.get("human_handoff", {}).get("triggers", [])
     if any(t.lower() in query.lower() for t in handoff_triggers):
         handoff_msg = kb.get("human_handoff", {}).get("response",
             "Let me connect you to our human team. WhatsApp: +234 803 685 0229")
         _log_conversation(session_id, "assistant", handoff_msg, {})
-        return jsonify({"answer": handoff_msg, "escalate": True, "actions": []})
+        return {"answer": handoff_msg, "escalate": True, "actions": []}
 
     history = _load_session_history(session_id)
     session_text = _render_session_history(history)
@@ -381,6 +440,7 @@ def ai_query():
 
     answer = None
     error_log = None
+    provider = None
 
     if _gemini_model:
         try:
@@ -397,8 +457,6 @@ def ai_query():
             error_log = str(gen_error)
             answer = None
             provider = None
-    else:
-        provider = None
 
     if not answer and OPENAI_API_KEY:
         openai_answer, openai_error = _call_openai(system_prompt, query)
@@ -424,18 +482,53 @@ def ai_query():
         for a in actions:
             clean_answer = clean_answer.replace(a.get("raw", ""), "").strip()
         _log_conversation(session_id, "assistant", clean_answer, {"provider": provider})
-        return jsonify({"answer": clean_answer, "escalate": False, "actions": actions, "provider": provider})
+        return {"answer": clean_answer, "escalate": False, "actions": actions, "provider": provider}
+
+    if not answer and not _gemini_model and not OPENAI_API_KEY and not ANTHROPIC_API_KEY:
+        error_log = error_log or "No AI provider configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY."
 
     kb_answer = _find_kb_response(query, kb)
     if kb_answer:
         _log_conversation(session_id, "assistant", kb_answer, {"fallback": True})
-        return jsonify({"answer": kb_answer, "escalate": False, "actions": [], "provider": "kb_fallback"})
+        return {"answer": kb_answer, "escalate": False, "actions": [], "provider": "kb_fallback"}
 
-    fallbacks = kb.get("fallback_responses", ["Sorry, something went wrong."])
+    fallbacks = kb.get("fallback_responses", ["I’m sorry, I’m having trouble answering right now. Please try again in a moment or contact WhatsApp at +234 803 685 0229."])
     import random
     fallback_answer = random.choice(fallbacks)
+    print(f"AI fallback triggered. provider={provider}, error_log={error_log}")
     _log_conversation(session_id, "assistant", fallback_answer, {"fallback": True})
-    return jsonify({"answer": fallback_answer, "escalate": False, "provider": "fallback", "error_log": error_log or "No provider available"})
+    return {"answer": fallback_answer, "escalate": False, "provider": "fallback", "error_log": error_log or "No provider available"}
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """Compatibility adapter for frontend widget.
+    Accepts either OpenAI-style `{ messages: [{role,content}, ...] }` or `{ query: '...' }`.
+    Returns `{ reply: '...' , actions: [...], provider: '...' }` to match widget expectations.
+    """
+    data = request.get_json(silent=True) or {}
+
+    # support OpenAI-like messages array
+    query = ""
+    if isinstance(data.get("messages"), list):
+        msgs = data.get("messages")
+        user_msgs = [m for m in msgs if str(m.get("role","") ).lower() == "user"]
+        if user_msgs:
+            query = (user_msgs[-1].get("content") or "").strip()
+    if not query:
+        query = (data.get("query") or "").strip()
+
+    session_id = data.get("session_id", data.get("session", "anonymous")) or "anonymous"
+    context = data.get("context", {})
+
+    result = process_query(query, session_id, context)
+    # normalize for frontend
+    return jsonify({
+        "reply": result.get("answer"),
+        "actions": result.get("actions", []),
+        "provider": result.get("provider"),
+        "escalate": result.get("escalate", False),
+    })
 
 
 def _extract_actions(text):
@@ -561,14 +654,13 @@ def feedback():
 
 
 @app.route("/analytics", methods=["GET"])
+@require_env_token("ANALYTICS_TOKEN")
 def analytics():
     """
     Basic analytics endpoint — returns conversation and feedback summary.
-    Protected by a simple token check.
+    Protection is provided by `ANALYTICS_TOKEN` (header `X-API-KEY` or query `token`).
+    If `ANALYTICS_TOKEN` is not set the endpoint is public.
     """
-    token = request.args.get("token","")
-    if token != os.environ.get("ANALYTICS_TOKEN",""):
-        return jsonify({"error": "Unauthorized"}), 401
 
     logs     = _read_json(CONV_LOG_PATH, [])
     feedback = _read_json(FEEDBACK_PATH, [])
@@ -635,6 +727,77 @@ def _log_event(event_type, payload):
     if len(logs) > 5000:
         logs = logs[-5000:]
     _write_json(USER_LOG_PATH, logs)
+
+
+def _validate_env():
+    """Check which AI providers and key configs are available and print a startup summary."""
+    providers = {
+        "gemini": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+        "openai": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+    }
+    analytics_token = bool(os.environ.get("ANALYTICS_TOKEN", "").strip())
+    config_token = bool(os.environ.get("CONFIG_TOKEN", "").strip())
+    print("--- Duct AI startup configuration ---")
+    print(f"Allowed CORS origins: {_ALLOWED_ORIGINS_RAW}")
+    print(f"Providers configured: {', '.join([k for k,v in providers.items() if v]) or 'none'}")
+    print(f"Analytics token present: {analytics_token}")
+    print(f"Config endpoint protected by token: {config_token}")
+    if not any(providers.values()):
+        print("WARNING: No AI providers configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.")
+    return {**providers, "analytics": analytics_token, "config_token": config_token}
+
+
+def require_env_token(env_var_name: str):
+    """Decorator to protect endpoints with a token stored in environment.
+    Checks `X-API-KEY` header or `token` query param. If the env var is unset,
+    the endpoint remains public to avoid breaking existing integrations.
+    """
+    from functools import wraps
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            expected = os.environ.get(env_var_name, "").strip()
+            if not expected:
+                return func(*args, **kwargs)
+            token = request.headers.get("X-API-KEY") or request.args.get("token", "")
+            if token != expected:
+                return jsonify({"error": "Unauthorized"}), 401
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+@app.route("/config", methods=["GET"])
+@require_env_token("CONFIG_TOKEN")
+def get_config():
+    """Return non-sensitive config summary. Protected by CONFIG_TOKEN env var if set."""
+    # kept for backward compatibility; protection now applied by decorator
+    summary = _validate_env()
+    summary["allowed_origins"] = _ALLOWED_ORIGINS_RAW
+    return jsonify(summary)
+
+
+def require_env_token(env_var_name: str):
+    """Decorator to protect endpoints with a token stored in environment.
+    Checks `X-API-KEY` header or `token` query param. If the env var is unset,
+    the endpoint remains public to avoid breaking existing integrations.
+    """
+    from functools import wraps
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            expected = os.environ.get(env_var_name, "").strip()
+            if not expected:
+                return func(*args, **kwargs)
+            token = request.headers.get("X-API-KEY") or request.args.get("token", "")
+            if token != expected:
+                return jsonify({"error": "Unauthorized"}), 401
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 if __name__ == "__main__":
