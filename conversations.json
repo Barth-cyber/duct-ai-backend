@@ -46,5 +46,21 @@
       "fallback": true
     },
     "ts": "2026-05-06T00:18:56.746358"
+  },
+  {
+    "session_id": "test-session",
+    "role": "user",
+    "text": "Hello, can you help me?",
+    "context": {},
+    "ts": "2026-05-06T03:08:12.006012"
+  },
+  {
+    "session_id": "test-session",
+    "role": "assistant",
+    "text": "I’m sorry, I’m having trouble answering right now. Please try again in a moment or contact WhatsApp at +234 803 685 0229.",
+    "context": {
+      "fallback": true
+    },
+    "ts": "2026-05-06T03:08:22.638900"
   }
 ]

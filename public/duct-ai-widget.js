@@ -1,10 +1,14 @@
 (function () {
-  const BACKEND_URL = window.DUCT_AI_BACKEND_URL || window.location.origin;
-  const API_PATH = `${BACKEND_URL}/api/chat`;
+  const currentScript = document.currentScript || Array.from(document.getElementsByTagName('script')).pop();
+  const BACKEND_URL = (currentScript && currentScript.dataset.backendUrl) || window.DUCT_AI_BACKEND_URL || window.location.origin;
+  const API_PATH = `${BACKEND_URL.replace(/\/$/, '')}/api/chat`;
+  const scriptBase = (currentScript && currentScript.src)
+    ? currentScript.src.replace(/\/[^\/]*$/, '/')
+    : '';
 
   const widgetStyles = document.createElement('link');
   widgetStyles.rel = 'stylesheet';
-  widgetStyles.href = 'duct-ai-widget.css';
+  widgetStyles.href = scriptBase + 'duct-ai-widget.css';
   document.head.appendChild(widgetStyles);
 
   const container = document.createElement('div');
@@ -15,7 +19,7 @@
       <div class="duct-ai-widget-header">Duct AI Assistant</div>
       <div class="duct-ai-widget-messages" id="ductAiMessages"></div>
       <div class="duct-ai-widget-footer">
-        <input id="ductAiInput" type="text" placeholder="Ask about furniture, materials or design" />
+        <input id="ductAiInput" type="text" placeholder="Ask about furniture, materials or design" autocomplete="off" />
         <button id="ductAiSend">Send</button>
       </div>
     </div>
@@ -30,11 +34,15 @@
 
   toggle.addEventListener('click', () => {
     panel.classList.toggle('visible');
+    if (panel.classList.contains('visible')) {
+      input.focus();
+    }
   });
 
   send.addEventListener('click', sendMessage);
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
+      event.preventDefault();
       sendMessage();
     }
   });
@@ -63,7 +71,7 @@
       if (!response.ok) {
         throw new Error(data.error || 'Request failed');
       }
-      addMessage(data.reply || 'No reply received.', 'assistant');
+      addMessage(data.reply || 'I’m sorry, I’m having trouble answering right now. Please try again in a moment or contact WhatsApp at +234 803 685 0229.', 'assistant');
     } catch (error) {
       addMessage('Error: ' + error.message, 'assistant');
     }
