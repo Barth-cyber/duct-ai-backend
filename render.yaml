@@ -10,6 +10,10 @@ services:
       # ── Required ──────────────────────────────────────────────────────────
       - key: GEMINI_API_KEY
         sync: false       # Set manually in Render dashboard
+      - key: OPENAI_API_KEY
+        sync: false       # Optional: set manually in Render dashboard
+      - key: ANTHROPIC_API_KEY
+        sync: false       # Optional: set manually in Render dashboard
       # ── Optional ──────────────────────────────────────────────────────────
       - key: ANALYTICS_TOKEN
         generateValue: true   # Random token for /analytics endpoint

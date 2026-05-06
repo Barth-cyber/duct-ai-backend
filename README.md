@@ -14,4 +14,6 @@ If this service is already configured on Render as a Node.js service, the reposi
 
 Set the `GEMINI_API_KEY` value in the Render dashboard under **Environment > Environment Variables**.
 
+If you prefer, this backend also accepts `GOOGLE_API_KEY` or `GOOGLE_GEMINI_API_KEY` for Gemini.
+
 Do not put the Gemini key in any committed file.

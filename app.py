@@ -18,10 +18,18 @@ load_dotenv()
 
 DEPLOYMENT_REVISION = '43c88de'
 
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '').strip()
+
+def _get_env_var(*names):
+    for name in names:
+        value = os.environ.get(name, "")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+OPENAI_API_KEY = _get_env_var('OPENAI_API_KEY', 'OPENAI_KEY', 'OPENAI_API')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-3.5-turbo')
 OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+ANTHROPIC_API_KEY = _get_env_var('ANTHROPIC_API_KEY', 'ANTHROPIC_KEY', 'ANTHROPIC_API')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
 ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
@@ -382,7 +390,7 @@ def health():
         "status": "ok",
         "service": "duct-ai-backend",
         "model": "gemini-1.5-flash",
-        "keySet": bool(os.environ.get("GEMINI_API_KEY")),
+        "keySet": bool(_get_env_var("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")),
         "revision": DEPLOYMENT_REVISION,
     })
 
@@ -732,15 +740,18 @@ def _log_event(event_type, payload):
 def _validate_env():
     """Check which AI providers and key configs are available and print a startup summary."""
     providers = {
-        "gemini": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
-        "openai": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
-        "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+        "gemini": bool(_get_env_var("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")),
+        "openai": bool(_get_env_var("OPENAI_API_KEY", "OPENAI_KEY", "OPENAI_API")),
+        "anthropic": bool(_get_env_var("ANTHROPIC_API_KEY", "ANTHROPIC_KEY", "ANTHROPIC_API")),
     }
     analytics_token = bool(os.environ.get("ANALYTICS_TOKEN", "").strip())
     config_token = bool(os.environ.get("CONFIG_TOKEN", "").strip())
     print("--- Duct AI startup configuration ---")
     print(f"Allowed CORS origins: {_ALLOWED_ORIGINS_RAW}")
     print(f"Providers configured: {', '.join([k for k,v in providers.items() if v]) or 'none'}")
+    print(f"Gemini env vars: {'yes' if _get_env_var('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GEMINI_API_KEY') else 'no'}")
+    print(f"OpenAI env vars: {'yes' if _get_env_var('OPENAI_API_KEY', 'OPENAI_KEY', 'OPENAI_API') else 'no'}")
+    print(f"Anthropic env vars: {'yes' if _get_env_var('ANTHROPIC_API_KEY', 'ANTHROPIC_KEY', 'ANTHROPIC_API') else 'no'}")
     print(f"Analytics token present: {analytics_token}")
     print(f"Config endpoint protected by token: {config_token}")
     if not any(providers.values()):
