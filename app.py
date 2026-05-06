@@ -386,13 +386,27 @@ def require_env_token(env_var_name: str):
 
 @app.route("/", methods=["GET"])
 def health():
+    providers = {
+        "gemini": bool(_get_env_var("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")),
+        "openai": bool(_get_env_var("OPENAI_API_KEY", "OPENAI_KEY", "OPENAI_API")),
+        "anthropic": bool(_get_env_var("ANTHROPIC_API_KEY", "ANTHROPIC_KEY", "ANTHROPIC_API")),
+    }
     return jsonify({
         "status": "ok",
         "service": "duct-ai-backend",
         "model": "gemini-1.5-flash",
-        "keySet": bool(_get_env_var("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")),
+        "ai_enabled": any(providers.values()),
+        "providers": providers,
         "revision": DEPLOYMENT_REVISION,
+        "allowed_origins": _ALLOWED_ORIGINS_RAW,
     })
+
+
+@app.route("/debug", methods=["GET"])
+def debug():
+    summary = _validate_env()
+    summary["allowed_origins"] = _ALLOWED_ORIGINS_RAW
+    return jsonify(summary)
 
 
 @app.route("/health", methods=["GET"])
