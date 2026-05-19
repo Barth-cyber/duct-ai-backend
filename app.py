@@ -46,6 +46,8 @@ def _init_gemini():
     try:
         import google.generativeai as genai
         gemini_api_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+        import sys
+        sys.stderr.write(f"[DEBUG] Checking API keys: GOOGLE_GEMINI_API_KEY={bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}, GEMINI_API_KEY={bool(os.environ.get('GEMINI_API_KEY'))}\n")
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
             for model_name in ["gemini-1.5-flash", "gemini-1.5", "gemini-1.0"]:
@@ -65,6 +67,12 @@ def _init_gemini():
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+
+# Log configuration on startup
+@app.before_first_request
+def log_startup():
+    gemini_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+    print(f"[STARTUP] GOOGLE_GEMINI_API_KEY Available: {bool(gemini_key)}")
 
 # Allow requests from your live domain AND localhost for development
 _ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "https://interiorductltd.com,https://www.interiorductltd.com,http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000")
