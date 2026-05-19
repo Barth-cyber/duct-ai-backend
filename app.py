@@ -53,7 +53,15 @@ def _init_gemini():
         import google.generativeai as genai
         gemini_api_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
         import sys
-        sys.stderr.write(f"[DEBUG] Checking API keys: GOOGLE_GEMINI_API_KEY={bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}, GEMINI_API_KEY={bool(os.environ.get('GEMINI_API_KEY'))}\n")
+        if gemini_api_key:
+            # Log which variable name was used
+            if os.environ.get("GOOGLE_GEMINI_API_KEY"):
+                sys.stderr.write("[INIT] Using GOOGLE_GEMINI_API_KEY\n")
+            elif os.environ.get("GEMINI_API_KEY"):
+                sys.stderr.write("[INIT] Using GEMINI_API_KEY\n")
+            elif os.environ.get("GOOGLE_API_KEY"):
+                sys.stderr.write("[INIT] Using GOOGLE_API_KEY\n")
+        sys.stderr.write(f"[DEBUG] Checking API keys: GOOGLE_GEMINI_API_KEY={bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}, GEMINI_API_KEY={bool(os.environ.get('GEMINI_API_KEY'))}, GOOGLE_API_KEY={bool(os.environ.get('GOOGLE_API_KEY'))}\n")
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
             for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5"]:
@@ -78,7 +86,14 @@ app = Flask(__name__)
 @app.before_first_request
 def log_startup():
     gemini_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
-    print(f"[STARTUP] GOOGLE_GEMINI_API_KEY Available: {bool(gemini_key)}")
+    key_name = "NONE"
+    if os.environ.get("GOOGLE_GEMINI_API_KEY"):
+        key_name = "GOOGLE_GEMINI_API_KEY"
+    elif os.environ.get("GEMINI_API_KEY"):
+        key_name = "GEMINI_API_KEY"
+    elif os.environ.get("GOOGLE_API_KEY"):
+        key_name = "GOOGLE_API_KEY"
+    print(f"[STARTUP] Gemini API Key: {key_name} Available: {bool(gemini_key)}")
 
 # Allow requests from your live domain AND localhost for development
 _ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "https://interiorductltd.com,https://www.interiorductltd.com,http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000")
