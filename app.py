@@ -1,7 +1,7 @@
 """
 Duct AI Backend — Interior Duct Ltd
 Serves: https://interiorductltd.com  (embedded chat widget)
-Model:  Google Gemini 1.5 Flash
+Model:  Google Gemini 2.0 Flash
 """
 
 import os
@@ -22,7 +22,7 @@ import sys
 sys.stderr.write(f"[RAILWAY-INIT] GOOGLE_GEMINI_API_KEY present: {bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}\n")
 sys.stderr.write(f"[RAILWAY-INIT] Any Gemini key present: {bool(_gemini_key_for_logging)}\n")
 
-DEPLOYMENT_REVISION = 'gemini-2.0-fix-v2'
+DEPLOYMENT_REVISION = 'gemini-2.0-flash-v1'
 
 
 def _get_env_var(*names):
@@ -59,24 +59,24 @@ def _init_gemini():
             for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5"]:
                 try:
                     _gemini_model = genai.GenerativeModel(model_name)
-                    pass
+                    sys.stderr.write(f"[GEMINI-INIT] Successfully initialized model: {model_name}\n")
                     break
                 except Exception as model_error:
-                    pass
+                    sys.stderr.write(f"[GEMINI-INIT] Failed to initialize {model_name}: {model_error}\n")
             if not _gemini_model:
-                pass
+                sys.stderr.write("[GEMINI-INIT] ERROR: All model variants failed to initialize\n")
         else:
+            sys.stderr.write("[GEMINI-INIT] WARNING: No Gemini API key found — Gemini disabled\n")
             _gemini_model = None
     except Exception as _e:
-        pass
+        sys.stderr.write(f"[GEMINI-INIT] ERROR: Exception during initialization: {_e}\n")
         _gemini_model = None
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
-# Log configuration on startup
-@app.before_first_request
-def log_startup():
+# Log configuration on startup (called explicitly — @before_first_request removed in Flask 2.3+)
+def _log_startup():
     gemini_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
     print(f"[STARTUP] GOOGLE_GEMINI_API_KEY Available: {bool(gemini_key)}")
 
@@ -408,7 +408,7 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "duct-ai-backend",
-        "model": "gemini-1.5-flash",
+        "model": "gemini-2.0-flash",
         "ai_enabled": any(providers.values()),
         "providers": providers,
         "revision": DEPLOYMENT_REVISION,
@@ -840,5 +840,6 @@ def require_env_token(env_var_name: str):
 
 
 if __name__ == "__main__":
+    _log_startup()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
