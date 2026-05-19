@@ -16,7 +16,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEPLOYMENT_REVISION = '43c88de'
+# Explicit startup logging for Railway
+_gemini_key_for_logging = os.environ.get("GOOGLE_GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+import sys
+sys.stderr.write(f"[RAILWAY-INIT] GOOGLE_GEMINI_API_KEY present: {bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}\n")
+sys.stderr.write(f"[RAILWAY-INIT] Any Gemini key present: {bool(_gemini_key_for_logging)}\n")
+
+DEPLOYMENT_REVISION = 'gemini-2.0-fix-v2'
 
 
 def _get_env_var(*names):
@@ -50,7 +56,7 @@ def _init_gemini():
         sys.stderr.write(f"[DEBUG] Checking API keys: GOOGLE_GEMINI_API_KEY={bool(os.environ.get('GOOGLE_GEMINI_API_KEY'))}, GEMINI_API_KEY={bool(os.environ.get('GEMINI_API_KEY'))}\n")
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
-            for model_name in ["gemini-1.5-flash", "gemini-1.5", "gemini-1.0"]:
+            for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5"]:
                 try:
                     _gemini_model = genai.GenerativeModel(model_name)
                     pass
