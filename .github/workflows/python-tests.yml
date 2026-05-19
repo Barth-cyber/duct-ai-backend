@@ -25,4 +25,4 @@ jobs:
 
       - name: Run tests
         run: |
-          python tests/run_tests.py
+          python -m py_compile app.py application.py

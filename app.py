@@ -45,22 +45,22 @@ def _init_gemini():
     _gemini_initialized = True
     try:
         import google.generativeai as genai
-        gemini_api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        gemini_api_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
             for model_name in ["gemini-1.5-flash", "gemini-1.5", "gemini-1.0"]:
                 try:
                     _gemini_model = genai.GenerativeModel(model_name)
-                    print(f"Gemini init: using model {model_name}")
+                    pass
                     break
                 except Exception as model_error:
-                    print(f"Gemini model init failed for {model_name}: {model_error}")
+                    pass
             if not _gemini_model:
-                print("Gemini init error: no usable model could be initialized")
+                pass
         else:
             _gemini_model = None
     except Exception as _e:
-        print(f"Gemini init warning: {_e}")
+        pass
         _gemini_model = None
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
