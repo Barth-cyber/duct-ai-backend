@@ -83,7 +83,6 @@ def _init_gemini():
 app = Flask(__name__)
 
 # Log configuration on startup
-@app.before_first_request
 def log_startup():
     gemini_key = _get_env_var("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
     key_name = "NONE"
@@ -94,6 +93,9 @@ def log_startup():
     elif os.environ.get("GOOGLE_API_KEY"):
         key_name = "GOOGLE_API_KEY"
     print(f"[STARTUP] Gemini API Key: {key_name} Available: {bool(gemini_key)}")
+
+with app.app_context():
+    log_startup()
 
 # Allow requests from your live domain AND localhost for development
 _ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "https://interiorductltd.com,https://www.interiorductltd.com,http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000")
