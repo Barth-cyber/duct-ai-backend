@@ -94,8 +94,7 @@ def log_startup():
         key_name = "GOOGLE_API_KEY"
     print(f"[STARTUP] Gemini API Key: {key_name} Available: {bool(gemini_key)}")
 
-with app.app_context():
-    log_startup()
+log_startup()
 
 # Allow requests from your live domain AND localhost for development
 _ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "https://interiorductltd.com,https://www.interiorductltd.com,http://localhost:5000,http://127.0.0.1:5000,http://localhost:3000")
