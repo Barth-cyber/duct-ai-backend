@@ -9,7 +9,7 @@ import json
 import time
 import datetime
 from typing import Any, List, Optional
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_from_directory
 import requests
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -80,7 +80,7 @@ def _init_gemini():
         _gemini_model = None
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 
 # Log configuration on startup
 def log_startup():
@@ -417,7 +417,23 @@ def require_env_token(env_var_name: str):
 
 @app.route("/", methods=["GET"])
 def index():
-    return send_file(os.path.join(BASE_DIR, "interior.html"))
+    html_file = os.path.join(BASE_DIR, "interior.html")
+    if not os.path.isfile(html_file):
+        return (
+            "<h1>Interior Duct Ltd</h1><p>Welcome. The site is loading.</p>",
+            200,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+    try:
+        response = send_from_directory(BASE_DIR, "interior.html")
+        response.headers["Content-Type"] = "text/html; charset=utf-8"
+        return response
+    except Exception as e:
+        return (
+            f"<h1>Error</h1><p>Could not load interior.html: {e}</p>",
+            500,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
 
 
 @app.route("/debug", methods=["GET"])
