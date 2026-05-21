@@ -9,7 +9,7 @@ import json
 import time
 import datetime
 from typing import Any, List, Optional
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import requests
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -416,7 +416,24 @@ def require_env_token(env_var_name: str):
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET"])
-def health():
+def index():
+    return send_file(os.path.join(BASE_DIR, "interior.html"))
+
+
+@app.route("/debug", methods=["GET"])
+def debug():
+    summary = _validate_env()
+    summary["allowed_origins"] = _ALLOWED_ORIGINS_RAW
+    return jsonify(summary)
+
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
     providers = {
         "gemini": bool(_get_env_var("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_API_KEY")),
         "openai": bool(_get_env_var("OPENAI_API_KEY", "OPENAI_KEY", "OPENAI_API")),
@@ -431,18 +448,6 @@ def health():
         "revision": DEPLOYMENT_REVISION,
         "allowed_origins": _ALLOWED_ORIGINS_RAW,
     })
-
-
-@app.route("/debug", methods=["GET"])
-def debug():
-    summary = _validate_env()
-    summary["allowed_origins"] = _ALLOWED_ORIGINS_RAW
-    return jsonify(summary)
-
-
-@app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"})
 
 
 @app.route("/ai-query", methods=["POST"])
